@@ -84,16 +84,17 @@ def load_movielens_1m(
 
     movies["genres_list"] = movies["genres"].str.split("|")
     movies["primary_genre"] = movies["genres_list"].str[0]
-    movies["movie_year"] = (
-        pd.to_numeric(movies["title"].str.extract(r"\((\d{4})\)")[0], errors="coerce"),
+    movies["movie_year"] = pd.to_numeric(
+        movies["title"].str.extract(r"\((\d{4})\)")[0],
+        errors="coerce",
     )
 
     # Convert to strings, so CatBoost can easily consider them as categorical features
     users["gender"] = users["gender"].astype(str)
     users["age_code"] = users["age_code"].astype(str)
     users["age_group"] = users["age_group"].astype(str)
-    users["occupation_code"] = users["occupation_code"].atype(str)
-    users["occupation_name"] = users["occupation_name"].atype(str)
+    users["occupation_code"] = users["occupation_code"].astype(str)
+    users["occupation_name"] = users["occupation_name"].astype(str)
     movies["primary_genre"] = movies["primary_genre"].astype(str)
     movies["genres"] = movies["genres"].astype(str)
     movies["title"] = movies["title"].astype(str)
