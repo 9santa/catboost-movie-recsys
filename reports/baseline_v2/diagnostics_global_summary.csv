@@ -1,0 +1,5 @@
+,genre_preference_score,genre_preference_score,genre_preference_score,genre_preference_score,genre_preference_score,popularity_score_norm,popularity_score_norm,popularity_score_norm,popularity_score_norm,popularity_score_norm
+,mean,median,std,min,max,mean,median,std,min,max
+target,,,,,,,,,,
+0,0.631369,0.653846,0.22138,0.0,1.0,0.556301,0.602895,0.206033,0.0,1.0
+1,0.660637,0.675245,0.180455,0.0,1.0,0.700562,0.717088,0.150009,0.0,1.0

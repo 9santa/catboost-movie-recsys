@@ -1,0 +1,18 @@
+{
+  "genre_user_stats": {
+    "score_col": "genre_preference_score",
+    "n_users_with_both_classes": 5975,
+    "share_users_pos_gt_neg": 0.6274476987447699,
+    "share_users_pos_eq_neg": 0.002510460251046025,
+    "mean_delta_pos_minus_neg": 0.019524180140212642,
+    "median_delta_pos_minus_neg": 0.01643087352462358
+  },
+  "popularity_user_stats": {
+    "score_col": "popularity_score_norm",
+    "n_users_with_both_classes": 5975,
+    "share_users_pos_gt_neg": 0.8957322175732217,
+    "share_users_pos_eq_neg": 0.0,
+    "mean_delta_pos_minus_neg": 0.1444015677610303,
+    "median_delta_pos_minus_neg": 0.15790893211353196
+  }
+}
