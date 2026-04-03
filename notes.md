@@ -1,35 +1,232 @@
-## baseline_v2
-очень интересные результаты. при alpha=0.7, и alpha=0.5 результаты хуже, чем при alpha=0.0 (то есть без genre preference вообще). чем больше alpha, тем хуже метрики
+# notes
 
-❯ cat metrics_alpha_0_7.json                       
-{
-  "NDCG@10": 0.24432837085895323,
-  "Recall@10": 0.16161186668508415,
-  "MRR@10": 0.3415523012552301
-}%                                                                                                                                                                                           
-catboost-movie-recsys/reports/baseline_v2 on  master [?] 
-❯ cat metrics_alpha_0_5.json                       
-{
-  "NDCG@10": 0.30419420951906856,
-  "Recall@10": 0.20319822936217086,
-  "MRR@10": 0.4176779570963671
-}%                                                                                                                                                                                           
-catboost-movie-recsys/reports/baseline_v2 on  master [?] 
-❯ cat metrics_alpha_0_0.json                       
-{
-  "NDCG@10": 0.37167871746555514,
-  "Recall@10": 0.245586351932103,
-  "MRR@10": 0.5061631135020257
-}%     
+## Что вообще происходит
 
-## Текущий вывод
+Хочу сделать рекомендательную систему фильмов на MovieLens как ranking-задачу.
 
-Genre preference в текущем простом виде не улучшает рекомендации по сравнению с popularity baseline_v1, a наоборот, ухудшает ranking-метрики при увеличении его веса.
+Идея такая:
+- для каждого пользователя беру его прошлые оценки;
+- собираю фильмы-кандидаты, которые он ещё не смотрел;
+- пытаюсь поставить выше те фильмы, которые он потом реально оценит на 4 или 5.
 
-Baseline v2 diagnostic results:
+Основная метрика — `NDCG@10`.  
+Ещё рассматриваются `Recall@10` и `MRR@10`.
 
-- `genre_preference_score` has predictive signal, but it is much weaker than `popularity_score_norm`.
-- On user level, positives have higher genre score than negatives for ~62.7% of users, while popularity does so for ~89.6%.
-- The positive rate by genre score quantiles is non-monotonic: top genre-score bins are not the most relevant.
-- Conclusion: naive genre-based personalization is too noisy to dominate ranking.
-- Next step: move to a pointwise model.
+---
+
+## Текущая постановка
+
+### Split
+Для каждого пользователя:
+- первые 80% оценок по времени -> `history`
+- последние 20% -> `future`
+
+### Target
+- `positive` = фильм из `future`, который пользователь оценил на 4 или 5
+- `negative` = фильм-кандидат, который positive не стал
+
+### Candidate generation
+Пока делаю просто:
+- все positive из future
+- + случайные negative-фильмы из ещё не просмотренных
+
+---
+
+## baseline v1 — popularity
+
+Самый первый baseline — вообще без персонализации, просто по популярности фильма.
+
+Просто считаю для каждого фильма глобальный `weighted_popularity_score` и ранжирую кандидатов по нему.
+
+### Результаты
+- `NDCG@10`: **0.3717**
+- `Recall@10`: **0.2456**
+- `MRR@10`: **0.5062**
+
+### Мысль
+Для такой простой модели результат нормальный.  
+Сразу стало понятно, что popularity здесь уже очень сильный сигнал, и дальше надо сравниваться именно с ним, а не с random.
+
+---
+
+## baseline v2 — genre preference + popularity
+
+Добавим самую простую персонализацию:
+- смотрю, какие жанры пользователь любил в history;
+- считаю `genre_preference_score` для кандидата;
+- смешиваю его с popularity.
+
+### Что получилось
+
+#### alpha = 0.0, beta = 1 - alpha
+То есть по сути просто popularity:
+- `NDCG@10`: **0.37167871746555514**
+- `Recall@10`: **0.245586351932103**
+- `MRR@10`: **0.5061631135020257**
+
+#### alpha = 0.5, beta = 1 - alpha
+- `NDCG@10`: **0.30419420951906856**
+- `Recall@10`: **0.20319822936217086**
+- `MRR@10`: **0.4176779570963671**
+
+#### alpha = 0.7, beta = 1 - alpha
+- `NDCG@10`: **0.24432837085895323**
+- `Recall@10`: **0.16161186668508415**
+- `MRR@10`: **0.3415523012552301**
+
+### Главный вывод
+Интересные результаты: чем больше вес (alpha) у `genre_preference_score`, тем хуже результат.
+
+То есть в таком виде жанровая персонализация не помогает, а только мешает.
+
+---
+
+## Что показала диагностика v2
+
+Проверил отдельно, насколько вообще `genre_preference_score` полезен.
+
+### Что видно
+- у positive объектов `genre_preference_score` в среднем выше, чем у negative
+- но разница небольшая
+- при этом `popularity_score_norm` разделяет positive / negative намного сильнее
+
+### По пользователям
+- `genre_preference_score` лучше у positive примерно для **62.7%** пользователей
+- `popularity_score_norm` лучше у positive примерно для **89.6%** пользователей
+
+### Ещё важный момент
+У `genre_preference_score` positive rate по квантилям ведёт себя немонотонно.  
+То есть самые высокие genre score не означают самые хорошие фильмы.
+
+А вот popularity ведёт себя намного красивее.
+
+### Вывод по v2
+Жанровый сигнал сам по себе не нулевой, но:
+- он сильно слабее popularity;
+- для top-k ranking работает плохо;
+- как главный score его использовать нельзя.
+
+После этого решил не копаться в ручных формулах слишком долго и перейти к обучаемой модели.
+
+---
+
+## baseline v3 — pointwise CatBoostClassifier
+
+Следующий шаг — pointwise-модель.
+
+То есть теперь не руками считаю score, а обучаю `CatBoostClassifier` на парах `(user, movie)`.
+
+Потом сортирую кандидатов по `predict_proba`.
+
+### Результаты
+- `NDCG@10`: **0.6246**
+- `Recall@10`: **0.4486**
+- `MRR@10`: **0.7617**
+
+Это уже очень большой скачок вверх относительно baseline v1 и v2.
+
+### Что по feature importance
+Наверху оказались:
+- `movie_rating_count`
+- `movie_popularity_log`
+- `genre_support_log`
+- `genre_support_sum`
+- `user_activity_log`
+- `popularity_score_norm`
+
+### Что из этого следует
+- popularity всё ещё очень важна;
+- но обучаемая модель уже умеет нормально сочетать popularity и user-item признаки;
+- support по жанрам оказался полезнее, чем сам наивный `genre_preference_score`;
+- демография почти ничего не даёт, что в целом интуитивно логично.
+
+### Вывод по v3
+Проблема была не в том, что “персонализация не работает”, а в том, что ручная жанровая формула была слишком грубой.
+
+Pointwise-модель уже выглядит как очень сильный baseline.
+
+---
+
+## baseline v4 — CatBoostRanker
+
+После v3 захотел проверить, даст ли ranking objective что-то сверху.
+
+### v4 + PairLogit
+Сначала попробовал `PairLogit`.
+
+Результаты:
+- `NDCG@10`: **0.6202**
+- `Recall@10`: **0.4447**
+- `MRR@10`: **0.7584**
+
+На каплю хуже, чем pointwise v3.
+
+### v4 + YetiRank
+Потом попробовал `YetiRank`.
+
+Результаты:
+- `NDCG@10`: **0.6269**
+- `Recall@10`: **0.4481**
+- `MRR@10`: **0.7741**
+
+### Вывод по v4
+`YetiRank` сейчас лучший из всех вариантов.
+
+Он:
+- чуть лучше по `NDCG@10`, чем v3
+- лучше по `MRR@10`
+- по `Recall@10` почти такой же (0.4481 vs 0.4486)
+
+То есть ranking objective всё-таки дал прирост, но без какого-то огромного скачка.
+
+И это, в целом, логично: pointwise classifier уже был очень сильным.
+
+---
+
+## Сравнение всех версий
+
+| Model | NDCG@10 | Recall@10 | MRR@10 |
+|---|---:|---:|---:|
+| Baseline v1 — popularity | 0.3717 | 0.2456 | 0.5062 |
+| Baseline v2 — genre + popularity (`alpha=0.5`) | 0.3042 | 0.2032 | 0.4177 |
+| Baseline v2 — genre + popularity (`alpha=0.7`) | 0.2443 | 0.1616 | 0.3416 |
+| Baseline v3 — pointwise CatBoostClassifier | 0.6246 | 0.4486 | 0.7617 |
+| Baseline v4 — CatBoostRanker (`PairLogit`) | 0.6202 | 0.4447 | 0.7584 |
+| **Baseline v4 — CatBoostRanker (`YetiRank`)** | **0.6269** | **0.4481** | **0.7741** |
+
+---
+
+## Что на данный момент понятно
+
+1. **Popularity baseline уже сильный.**  
+   То есть задача не совсем тривиальная даже без персонализации.
+
+2. **Наивная персонализация по жанрам не сработала.**  
+   Сигнал есть, но он слишком шумный и слабый.
+
+3. **Обучаемая pointwise-модель дала главный прирост.**  
+
+4. **Финальный ranker с YetiRank сейчас лучший.**  
+   Улучшение над pointwise есть, но не огромное.
+
+---
+
+## Важный caveat
+
+Сейчас candidate generation всё ещё довольно простой:
+- negative-кандидаты случайные
+
+Поэтому постановка немного облегчённая.  
+
+---
+
+## Что можно сделать дальше
+
+Возможные следующие шаги:
+- улучшить candidate generation;
+- сделать нормальный error analysis;
+- оформить до конца README;
+- возможно, сделать какое-то простое демо.
+
+---
+
